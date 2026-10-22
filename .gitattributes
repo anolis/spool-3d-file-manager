@@ -1,0 +1,2 @@
+# Vendored upstream files are preserved byte for byte, including their whitespace.
+public/occt/* -whitespace
