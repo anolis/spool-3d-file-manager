@@ -1,6 +1,6 @@
 {
   "name": "spool-3d-library",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -8,24 +8,71 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview --host 0.0.0.0",
     "test": "node --test tests/*.test.mjs",
-    "start": "node server/index.mjs",
-    "test:ui": "playwright test"
+    "start": "electron .",
+    "test:ui": "playwright test",
+    "prestart": "npm run build",
+    "desktop:dir": "npm run build && electron-builder --dir",
+    "package": "npm run build && electron-builder --linux AppImage && node tools/archive-linux.mjs",
+    "test:desktop": "playwright test --config playwright.desktop.config.ts",
+    "install:desktop": "node tools/install-desktop.mjs"
   },
   "dependencies": {
+    "fflate": "^0.8.2",
+    "lucide-react": "^0.468.0",
+    "occt-import-js": "^0.0.23",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
-    "three": "^0.180.0",
-    "lucide-react": "^0.468.0",
-    "fflate": "^0.8.2",
-    "occt-import-js": "^0.0.23"
+    "three": "^0.180.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.56.1",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
     "@types/three": "^0.180.0",
     "@vitejs/plugin-react": "^5.0.4",
+    "electron": "^45.0.0",
+    "electron-builder": "^26.15.3",
     "typescript": "^5.9.3",
-    "vite": "^7.1.12",
-    "@playwright/test": "^1.56.1"
-  }
+    "vite": "^7.1.12"
+  },
+  "description": "A desktop library and catalog for 3D printing files",
+  "author": "anolis",
+  "license": "MIT",
+  "main": "desktop/main.mjs",
+  "build": {
+    "appId": "io.github.anolis.spool",
+    "productName": "Spool",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "desktop/**/*",
+      "server/**/*",
+      "assets/**/*",
+      "package.json",
+      "LICENSE",
+      "THIRD_PARTY.md"
+    ],
+    "linux": {
+      "category": "Graphics",
+      "icon": "assets/spool.png",
+      "executableName": "spool",
+      "desktop": {
+        "entry": {
+          "Name": "Spool",
+          "Comment": "Browse and catalog 3D printing files",
+          "Categories": "Graphics;3DGraphics;Utility;"
+        }
+      },
+      "syncDesktopName": true
+    },
+    "mac": {
+      "category": "public.app-category.graphics-design"
+    },
+    "win": {
+      "target": "nsis"
+    }
+  },
+  "desktopName": "io.github.anolis.spool.desktop"
 }

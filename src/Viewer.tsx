@@ -4,7 +4,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { STLLoader } from 'three/addons/loaders/STLLoader.js';
 import { ThreeMFLoader } from 'three/addons/loaders/3MFLoader.js';
 import { GCodeLoader } from 'three/addons/loaders/GCodeLoader.js';
-import { Box, LoaderCircle, RotateCcw, ScanLine } from 'lucide-react';
+import { Box, LoaderCircle, RotateCcw, ScanLine, Move, Orbit, ZoomIn, ZoomOut } from 'lucide-react';
 import { type Model, fileUrl } from './types';
 
 const thumbnails = new Map<string, string>();
@@ -12,16 +12,22 @@ let thumbnailQueue = Promise.resolve();
 
 interface StepMesh { attributes: { position: { array: number[] }; normal?: { array: number[] } }; index: { array: number[] }; color?: number[] }
 export default function Viewer({ item, compact = false }: { item: Model; compact?: boolean }) {
+  const previewKey = `${item.id}:${item.added}:${item.size}`;
   const host = useRef<HTMLDivElement>(null);
   const reset = useRef<() => void>(() => {});
   const wireToggle = useRef<(value: boolean) => void>(() => {});
   const [wire, setWire] = useState(false);
-  const [thumbnail, setThumbnail] = useState(compact ? thumbnails.get(item.id) || '' : '');
+  const [mode, setMode] = useState<'orbit' | 'pan'>('orbit');
+  const modeChange = useRef<(mode: 'orbit' | 'pan') => void>(() => {});
+  const zoom = useRef<(factor: number) => void>(() => {});
+  const [thumbnail, setThumbnail] = useState(compact ? thumbnails.get(previewKey) || '' : '');
   const [status, setStatus] = useState('Loading preview…');
   const [error, setError] = useState('');
   const [dimensions, setDimensions] = useState('');
   useEffect(() => {
-    if (!host.current || item.format === 'zip' || (compact && thumbnails.has(item.id))) return;
+    if (!host.current || item.format === 'zip') return;
+    if (compact && thumbnails.has(previewKey)) { setThumbnail(thumbnails.get(previewKey)!); return; }
+    setThumbnail('');
     const element = host.current;
     let stopped = false, frame = 0, worker: Worker | undefined;
     let renderer: THREE.WebGLRenderer | undefined;
@@ -31,7 +37,7 @@ export default function Viewer({ item, compact = false }: { item: Model; compact
     const camera = new THREE.PerspectiveCamera(35, 1, 0.01, 10000);
     let controls: OrbitControls | undefined;
     let observer: ResizeObserver | undefined;
-    setError(''); setStatus('Loading preview…'); setDimensions(''); setWire(false);
+    setError(''); setStatus('Loading preview…'); setDimensions(''); setWire(false); setMode('orbit');
     const disposeScene = () => scene.traverse(child => {
       if (child instanceof THREE.Mesh || child instanceof THREE.LineSegments) {
         child.geometry.dispose();
@@ -53,7 +59,18 @@ export default function Viewer({ item, compact = false }: { item: Model; compact
         element.appendChild(renderer.domElement);
         controls = new OrbitControls(camera, renderer.domElement);
         controls.enableDamping = true; controls.enablePan = !compact; controls.enableZoom = !compact;
-        controls.autoRotate = compact; controls.autoRotateSpeed = 0.5;
+        controls.autoRotate = false;
+        modeChange.current = next => {
+          if (!controls) return;
+          controls.mouseButtons.LEFT = next === 'pan' ? THREE.MOUSE.PAN : THREE.MOUSE.ROTATE;
+          controls.touches.ONE = next === 'pan' ? THREE.TOUCH.PAN : THREE.TOUCH.ROTATE;
+        };
+        zoom.current = factor => {
+          if (!controls) return;
+          const offset = camera.position.clone().sub(controls.target);
+          const distance = THREE.MathUtils.clamp(offset.length() * factor, controls.minDistance, controls.maxDistance);
+          camera.position.copy(controls.target).add(offset.setLength(distance)); controls.update();
+        };
         scene.add(new THREE.HemisphereLight(0xffffff, 0x7a8c83, 3));
         const sun = new THREE.DirectionalLight(0xffffff, 3.5); sun.position.set(-100, 200, 100); scene.add(sun);
         const fill = new THREE.DirectionalLight(0xc8e2d4, 2); fill.position.set(150, 40, -100); scene.add(fill);
@@ -109,6 +126,7 @@ export default function Viewer({ item, compact = false }: { item: Model; compact
           camera.near = Math.max(extent/1000, 0.001); camera.far = extent*100; camera.updateProjectionMatrix();
           controls!.target.set(0, 0, 0); controls!.update();
         };
+        controls.minDistance = extent * 0.05; controls.maxDistance = extent * 30;
         reset.current = resetView; resetView();
         wireToggle.current = value => object.traverse(child => {
           if (child instanceof THREE.Mesh) for (const mat of (Array.isArray(child.material) ? child.material : [child.material])) if ('wireframe' in mat) (mat as THREE.MeshStandardMaterial).wireframe = value;
@@ -120,7 +138,7 @@ export default function Viewer({ item, compact = false }: { item: Model; compact
           renderer.render(scene, camera);
           const thumbnailUrl = renderer.domElement.toDataURL('image/webp', 0.8);
           if (thumbnails.size >= 120) thumbnails.delete(thumbnails.keys().next().value!);
-          thumbnails.set(item.id, thumbnailUrl); setThumbnail(thumbnailUrl);
+          thumbnails.set(previewKey, thumbnailUrl); setThumbnail(thumbnailUrl);
           controls.dispose(); disposeScene(); renderer.dispose(); renderer.forceContextLoss();
           element.removeChild(renderer.domElement); renderer = undefined;
           return;
@@ -139,11 +157,12 @@ export default function Viewer({ item, compact = false }: { item: Model; compact
       disposeScene();
       renderer?.dispose(); renderer?.forceContextLoss(); if (renderer?.domElement.parentNode === element) element.removeChild(renderer.domElement);
     };
-  }, [item.id, item.format, compact]);
+  }, [item.id, item.format, item.added, item.size, compact]);
   if (item.format === 'zip') return <div className="archive-art"><Box size={66} strokeWidth={1}/><span>ZIP ARCHIVE</span><p>Add to collection to inspect its models</p></div>;
   return <div className={`viewer ${compact ? 'compact' : ''}`}>
     <div className="canvas-host" ref={host}/>{thumbnail && compact && <img className="rendered-thumbnail" src={thumbnail} alt="3D model preview"/>}
     {!thumbnail && (status || error) && <div className={`viewer-message ${error ? 'preview-error' : ''}`}>{error ? <Box size={30}/> : <LoaderCircle className="spin" size={24}/>}<span>{error || status}</span></div>}
-    {!compact && !error && !status && <><div className="viewer-toolbar"><button title="Reset view" aria-label="Reset view" onClick={() => reset.current()}><RotateCcw size={17}/></button><button className={wire ? 'selected' : ''} title="Toggle wireframe" aria-label="Toggle wireframe" onClick={() => { setWire(!wire); wireToggle.current(!wire); }}><ScanLine size={17}/></button></div><div className="viewer-caption"><span>Drag to orbit · Scroll to zoom · Right-drag to pan</span><span>{dimensions}</span></div></>}
+    {!compact && !error && !status && <><div className="viewer-toolbar" role="toolbar" aria-label="3D model controls"><div className="viewer-mode-buttons"><button className={mode === 'orbit' ? 'selected' : ''} aria-label="Orbit and tilt model" aria-pressed={mode === 'orbit'} onClick={() => { setMode('orbit'); modeChange.current('orbit'); }}><Orbit size={16}/><span>Orbit / tilt</span></button><button className={mode === 'pan' ? 'selected' : ''} aria-label="Pan model" aria-pressed={mode === 'pan'} onClick={() => { setMode('pan'); modeChange.current('pan'); }}><Move size={16}/><span>Pan</span></button></div><div className="viewer-zoom-buttons"><button title="Zoom in" aria-label="Zoom in" onClick={() => zoom.current(0.8)}><ZoomIn size={17}/></button><button title="Zoom out" aria-label="Zoom out" onClick={() => zoom.current(1.25)}><ZoomOut size={17}/></button><button title="Fit model / reset view" aria-label="Reset view" onClick={() => reset.current()}><RotateCcw size={17}/></button><button className={wire ? 'selected' : ''} title="Toggle wireframe" aria-label="Toggle wireframe" aria-pressed={wire} onClick={() => { setWire(!wire); wireToggle.current(!wire); }}><ScanLine size={17}/></button></div></div><div className="viewer-caption"><span>{mode === 'pan' ? 'Drag to pan' : 'Drag to orbit and tilt'} · Scroll or pinch to zoom · Right-drag to pan</span><span>{dimensions}</span></div></>}
+
   </div>;
 }

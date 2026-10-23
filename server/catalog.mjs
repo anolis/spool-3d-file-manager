@@ -30,8 +30,8 @@ export function createCatalog(directory) {
   const manifest = path.join(directory, 'catalog.json');
   let queue = Promise.resolve();
   async function read() {
-    try { return JSON.parse(await fs.readFile(manifest, 'utf8')); }
-    catch (err) { if (err.code === 'ENOENT') return { version: 1, items: [], archives: [] }; throw err; }
+    try { const catalog = JSON.parse(await fs.readFile(manifest, 'utf8')); catalog.folders ||= []; return catalog; }
+    catch (err) { if (err.code === 'ENOENT') return { version: 1, items: [], archives: [], folders: [] }; throw err; }
   }
   async function transaction(fn) {
     const pending = queue.then(async () => {
@@ -94,6 +94,27 @@ export function createCatalog(directory) {
   async function remove(id) {
     return transaction(catalog => { catalog.items = catalog.items.filter(i => i.id !== id); });
   }
+  async function addFolder(filename) {
+    if (typeof filename !== 'string' || !path.isAbsolute(filename)) throw new Error('Choose an absolute folder path.');
+    const canonical = await fs.realpath(filename);
+    if (!(await fs.stat(canonical)).isDirectory()) throw new Error('Choose a folder, not a file.');
+    return transaction(catalog => {
+      const existing = catalog.folders.find(folder => folder.path === canonical);
+      if (existing) return existing;
+      if (catalog.folders.some(folder => canonical.startsWith(folder.path + path.sep) || folder.path.startsWith(canonical + path.sep))) throw new Error('This location overlaps a folder already in your library. Remove the overlapping folder first.');
+      const folder = { id: randomUUID(), name: path.basename(canonical) || canonical, path: canonical, added: new Date().toISOString(), count: 0 };
+      catalog.folders.push(folder); return folder;
+    });
+  }
+  async function updateFolder(id, patch) {
+    return transaction(catalog => {
+      const folder = catalog.folders.find(f => f.id === id);
+      if (folder) Object.assign(folder, patch);
+    });
+  }
+  async function removeFolder(id) {
+    return transaction(catalog => { catalog.folders = catalog.folders.filter(f => f.id !== id); });
+  }
   async function backup() {
     const catalog = await read();
     const files = { 'spool-catalog.json': strToU8(JSON.stringify(catalog)) };
@@ -120,8 +141,12 @@ export function createCatalog(directory) {
         await fs.writeFile(path.join(assets, entry.id), files[`files/${entry.id}`]);
         list.push(entry); if (list === catalog.items) count++;
       }
+      for (const folder of data.folders || []) {
+        if (typeof folder.path !== 'string' || !path.isAbsolute(folder.path) || typeof folder.name !== 'string' || !/^[a-f0-9-]{36}$/.test(folder.id)) throw new Error('Backup contains invalid folder metadata.');
+        if (!catalog.folders.some(f => f.path === folder.path || f.id === folder.id)) catalog.folders.push({ ...folder, count: 0, scannedAt: undefined });
+      }
       return { count };
     });
   }
-  return { read, add, update, remove, backup, restore, assets };
+  return { read, add, update, remove, backup, restore, addFolder, updateFolder, removeFolder, assets };
 }

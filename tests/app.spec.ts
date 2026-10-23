@@ -14,11 +14,11 @@ test('local workflow: browse, import ZIP, preview, edit, reload, discover and re
   const zip = zipSync({ 'files/test-knot.stl': strToU8(stl), 'README.md': strToU8('Original model https://www.printables.com/model/123-test-knot') });
   await fs.writeFile(path.join(directory, 'model.stl'), stl);
   await page.goto('/');
-  await expect(page.getByRole('heading', { name:'My collection', exact:true })).toBeVisible();
+  await expect(page.getByRole('heading', { name:'Model folders', exact:true })).toBeVisible();
   await page.screenshot({ path:'/tmp/spool-empty-desktop.png', fullPage:true });
-  await page.getByRole('button', { name:'Local files', exact:true }).click();
-  await page.getByRole('textbox', { name:'Folder path' }).fill(directory);
-  await page.getByRole('button', { name:'Open folder', exact:true }).click();
+  await page.getByRole('button', { name:'Add your first folder', exact:true }).click();
+  await page.getByRole('textbox', { name:'Folder path', exact:true }).fill(directory);
+  await page.getByRole('button', { name:'Add folder', exact:true }).last().click();
   await expect(page.getByRole('button', { name:'Open model.stl', exact:true })).toBeVisible();
   await page.getByRole('button', { name:'My collection', exact:false }).first().click();
   await page.getByRole('button', { name:'Add models', exact:true }).click();
@@ -39,6 +39,7 @@ test('local workflow: browse, import ZIP, preview, edit, reload, discover and re
   await page.screenshot({ path:'/tmp/spool-preview-desktop.png', fullPage:true });
   await page.getByRole('button', { name:'Close model details' }).click();
   await page.reload();
+  await page.getByRole('button', { name:'My collection', exact:true }).click();
   await expect(page.getByRole('button', { name:'Workshop knot', exact:true })).toBeVisible();
   await page.getByRole('textbox', { name:'Search models', exact:true }).fill('workshop');
   await expect(page.getByRole('button', { name:'Workshop knot', exact:true })).toBeVisible();
@@ -48,9 +49,12 @@ test('local workflow: browse, import ZIP, preview, edit, reload, discover and re
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.getByRole('button', { name:'Discover models', exact:false }).click();
   await expect(page.getByRole('heading', { name:'Discover models', exact:true })).toBeVisible();
-  await expect(page.getByRole('link', { name:/Printables Search on website/ })).toBeVisible();
+  await expect(page.getByRole('button', { name:'Search Printables',exact:true })).toBeVisible();
+  await page.route('**/api/discover?**',route=>route.fulfill({json:{items:[{id:'printables:3161',title:'3D BENCHY',creator:'Prusa Research',source:'https://www.printables.com/model/3161-3d-benchy',provider:'printables',searchMode:'live'}],errors:[],sources:[{provider:'printables',mode:'live',count:1}],hasMore:false}}));
   await page.getByRole('textbox', { name:'Search models', exact:true }).fill('benchy');
-  await expect(page.getByRole('link', { name:/Printables Search on website/ })).toHaveAttribute('href', /q=benchy/);
+  await page.getByRole('button',{name:'Search',exact:true}).click();
+  await expect(page.getByRole('heading',{name:'3D BENCHY',exact:true})).toBeVisible();
+  await expect(page.getByRole('link',{name:'View model',exact:true})).toHaveAttribute('href','https://www.printables.com/model/3161-3d-benchy');
   await page.screenshot({ path:'/tmp/spool-discover-mobile.png', fullPage:true });
   expect(errors).toEqual([]);
   // STEP is converted with a local WASM worker, and G-code follows the same inspection flow.
@@ -60,6 +64,7 @@ test('local workflow: browse, import ZIP, preview, edit, reload, discover and re
   await page.setViewportSize({ width:1440, height:1000 });
   await page.getByRole('button', { name:'My collection', exact:false }).first().click();
   await page.reload();
+  await page.getByRole('button', { name:'My collection', exact:true }).click();
   await page.getByRole('button', { name:'Open rounded-cube.step', exact:true }).click();
   await expect(page.locator('.viewer-caption')).toBeVisible({ timeout:60000 });
   await page.screenshot({ path:'/tmp/spool-step-preview.png', fullPage:true });
@@ -71,6 +76,7 @@ test('local workflow: browse, import ZIP, preview, edit, reload, discover and re
   const threeMf = zipSync({ '3D/3dmodel.model':strToU8(modelXml), '_rels/.rels':strToU8('<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Target="/3D/3dmodel.model" Id="rel0" Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel"/></Relationships>') });
   await request.post('/api/import?name=tetrahedron.3mf', { data:Buffer.from(threeMf) });
   await page.reload();
+  await page.getByRole('button', { name:'My collection', exact:true }).click();
   await page.getByRole('button', { name:'Open tetrahedron.3mf', exact:true }).click();
   await expect(page.locator('.viewer-caption')).toBeVisible({ timeout:30000 });
   expect(errors).toEqual([]);
@@ -82,7 +88,7 @@ test('project page has working setup links and fits mobile', async ({ page }) =>
   await expect(page.getByRole('img', { name:/Spool displaying an interactive/ })).toBeVisible();
   await page.screenshot({ path:'/tmp/spool-project-page-desktop.png', fullPage:true });
   await page.setViewportSize({ width:390, height:844 });
-  await page.getByRole('link', { name:'Start your collection' }).click();
+  await page.getByRole('link', { name:'Get the desktop app' }).click();
   await expect(page.getByRole('heading', { name:'Give your files a home.' })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path:'/tmp/spool-project-page-mobile.png', fullPage:true });

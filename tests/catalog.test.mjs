@@ -53,7 +53,7 @@ test('unsafe source links and malformed archives fail without mutating the catal
   assert.equal(sourceInText('https://thingiverse.com/thing:123'), 'https://thingiverse.com/thing:123');
 });
 
-test('local API blocks foreign origins and nonlocal hosts, browses folders without adding files', async t => {
+test('development adapter blocks foreign origins and nonlocal hosts, indexes folders without copying files', async t => {
   const dir = await fixture(t); await fs.writeFile(path.join(dir, 'model.stl'), model); await fs.writeFile(path.join(dir, 'secret.txt'), 'hidden');
   const server = http.createServer(createApi({ dataDirectory: path.join(dir, 'data'), home: dir }));
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve)); t.after(() => server.close());
@@ -61,7 +61,7 @@ test('local API blocks foreign origins and nonlocal hosts, browses folders witho
   assert.equal((await fetch(root+'/api/info', { headers: { Origin: 'https://evil.example' } })).status, 403);
   const foreignHostStatus = await new Promise((resolve, reject) => { http.get(root+'/api/info', { headers: { Host: 'evil.example' } }, response => { response.resume(); resolve(response.statusCode); }).on('error', reject); });
   assert.equal(foreignHostStatus, 403);
-  const listing = await (await fetch(root+'/api/browse')).json();
+  const listing = await (await fetch(root+'/api/folders',{method:'POST',body:JSON.stringify({path:dir})})).json();
   assert.equal(listing.items.length, 1); assert.equal(listing.items[0].name, 'model.stl');
   assert.equal((await (await fetch(root+'/api/catalog')).json()).items.length, 0);
   assert.equal((await fetch(root+'/api/local-file?path='+encodeURIComponent(path.join(dir,'secret.txt')))).status, 400);
@@ -69,4 +69,40 @@ test('local API blocks foreign origins and nonlocal hosts, browses folders witho
   const id = imported.added[0].id;
   await fetch(root+'/api/items/'+id, { method:'DELETE' });
   assert.deepEqual(await fs.readFile(path.join(dir,'model.stl')), Buffer.from(model));
+});
+
+test('folder library persists roots, indexes nested models, rescans and removes references only', async t => {
+  const directory = await fixture(t), root = path.join(directory,'Models');
+  await fs.mkdir(path.join(root,'parts'),{recursive:true});
+  await fs.writeFile(path.join(root,'parts','part.stl'),model);
+  await fs.writeFile(path.join(root,'part.step'),'STEP');
+  await fs.writeFile(path.join(root,'readme.txt'),'Not a model');
+  await fs.symlink(root,path.join(root,'loop'),'dir');
+  const { createService } = await import('../server/service.mjs');
+  const options = {dataDirectory:path.join(directory,'data')};
+  let service = createService(options);
+  const invoke = async (route, method = 'GET', body) => { const response = await service(new Request('spool://app'+route,{method,body:body ? JSON.stringify(body) : undefined})); return {status:response.status,data:await response.json()}; };
+  const added = await invoke('/api/folders','POST',{path:root});
+  assert.equal(added.status,200); assert.equal(added.data.items.length,2);
+  assert.equal(added.data.items.some(i=>i.relativePath===path.join('parts','part.stl')),true);
+  const id = added.data.folder.id;
+  assert.equal((await invoke('/api/folders','POST',{path:path.join(root,'parts')})).status,400);
+  assert.equal((await invoke('/api/folders','POST',{path:root})).data.folder.id,id);
+  service = createService(options);
+  assert.equal((await invoke('/api/folders')).data.length,1);
+  assert.equal((await invoke(`/api/folders/${id}/files`)).data.items.length,2);
+  await fs.writeFile(path.join(root,'new.3mf'),'3MF');
+  assert.equal((await invoke(`/api/folders/${id}/rescan`,'POST')).data.items.length,3);
+  await invoke(`/api/folders/${id}`,'DELETE');
+  assert.equal((await invoke('/api/folders')).data.length,0);
+  assert.deepEqual(await fs.readFile(path.join(root,'parts','part.stl')),Buffer.from(model));
+});
+
+test('folder scans report disconnected roots and cap indexing without scanning outside roots', async t => {
+  const directory = await fixture(t);
+  const { scanFolder } = await import('../server/folders.mjs');
+  for (let i=0;i<3;i++) await fs.writeFile(path.join(directory,`${i}.stl`),model);
+  const scan = await scanFolder(directory,{limit:2});
+  assert.equal(scan.truncated,true); assert.equal(scan.items.length,2);
+  await assert.rejects(scanFolder(path.join(directory,'disconnected')),/unavailable/);
 });
