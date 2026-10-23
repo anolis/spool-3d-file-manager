@@ -23,4 +23,16 @@ await fs.copyFile(path.join(project,'assets/spool.png'),path.join(iconDirectory,
 const quoted = value => '"'+value.replace(/(["\\`$])/g,'\\$1').replace(/%/g,'%%')+'"';
 await fs.writeFile(path.join(launcherDirectory,'io.github.anolis.spool.desktop'), `[Desktop Entry]\nType=Application\nName=Spool\nComment=Browse and catalog 3D printing files\nExec=${quoted(executable)}\nIcon=io.github.anolis.spool\nTerminal=false\nCategories=Graphics;3DGraphics;Utility;\nStartupNotify=true\nStartupWMClass=io.github.anolis.spool\n`);
 try { execFileSync('update-desktop-database',[launcherDirectory],{stdio:'ignore'}); } catch { /* Not all desktops provide this optional cache tool. */ }
+if (process.argv.includes('--desktop')) {
+  let desktopDirectory;
+  try { desktopDirectory = execFileSync('xdg-user-dir',['DESKTOP'],{encoding:'utf8'}).trim(); }
+  catch { desktopDirectory = path.join(os.homedir(),'Desktop'); }
+  if (!path.isAbsolute(desktopDirectory)) throw new Error('Desktop folder must be an absolute path.');
+  await fs.mkdir(desktopDirectory,{recursive:true});
+  const shortcut = path.join(desktopDirectory,'io.github.anolis.spool.desktop');
+  await fs.copyFile(path.join(launcherDirectory,'io.github.anolis.spool.desktop'),shortcut);
+  await fs.chmod(shortcut,0o755);
+  try { execFileSync('gio',['set',shortcut,'metadata::trusted','true'],{stdio:'ignore'}); } catch { /* Some desktops use executable permission alone. */ }
+  console.log('Created desktop shortcut: '+shortcut);
+}
 console.log('Installed Spool in '+destination+'\nOpen Spool from your applications menu.');

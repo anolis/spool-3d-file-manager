@@ -35,7 +35,9 @@ npm run desktop:dir
 npm run install:desktop
 ```
 
-Then open **Spool** from your applications menu. The installer copies the standalone app into your user data directory and registers its launcher without root. Repeating it updates the app; your collection lives separately and is preserved.
+To add a desktop icon too, use `npm run install:desktop -- --desktop`.
+
+Then open **Spool** from your applications menu or desktop icon. The installer copies the standalone app into your user data directory and registers its launcher without root. Repeating it updates the app; your collection lives separately and is preserved.
 
 To create distributable AppImage and tar.gz packages, run `npm run package`.
 
